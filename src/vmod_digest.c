@@ -45,7 +45,7 @@
 #endif
 
 #include "vrt.h"
-#include "bin/varnishd/cache.h"
+#include "cache/cache.h"
 #include "vcc_if.h"
 #include "config.h"
 
@@ -230,7 +230,7 @@ base64_encode (struct e_alphabet *alpha, const char *in,
 }
 
 static const char *
-vmod_hmac_generic(struct sess *sp, hashid hash, const char *key, const char *msg)
+vmod_hmac_generic(const struct vrt_ctx *ctx, hashid hash, const char *key, const char *msg)
 {
 	size_t maclen = mhash_get_hash_pblock(hash);
 	size_t blocksize = mhash_get_block_size(hash);
@@ -242,8 +242,8 @@ vmod_hmac_generic(struct sess *sp, hashid hash, const char *key, const char *msg
 
 	assert(msg);
 	assert(key);
-	CHECK_OBJ_NOTNULL(sp, SESS_MAGIC);
-	CHECK_OBJ_NOTNULL(sp->ws, WS_MAGIC);
+	CHECK_OBJ_NOTNULL(ctx->req, SESS_MAGIC);
+	CHECK_OBJ_NOTNULL(ctx->req->ws, WS_MAGIC);
 
 	/*
 	 * XXX: From mhash(3):
@@ -262,7 +262,7 @@ vmod_hmac_generic(struct sess *sp, hashid hash, const char *key, const char *msg
 	/*
 	 * HEX-encode
 	 */
-	hexenc = WS_Alloc(sp->ws, 2*blocksize+3); // 0x, '\0' + 2 per input
+	hexenc = WS_Alloc(ctx->req->ws, 2*blocksize+3); // 0x, '\0' + 2 per input
 	if (hexenc == NULL)
 		return NULL;
 	hexptr = hexenc;
@@ -278,49 +278,49 @@ vmod_hmac_generic(struct sess *sp, hashid hash, const char *key, const char *msg
 }
 
 static const char *
-vmod_base64_generic(struct sess *sp, enum alphabets a, const char *msg)
+vmod_base64_generic(const struct vrt_ctx *ctx, enum alphabets a, const char *msg)
 {
 	char *p;
 	int u;
 	assert(msg);
 	assert(a<N_ALPHA);
-	CHECK_OBJ_NOTNULL(sp, SESS_MAGIC);
-	CHECK_OBJ_NOTNULL(sp->ws, WS_MAGIC);
+	CHECK_OBJ_NOTNULL(ctx->req, SESS_MAGIC);
+	CHECK_OBJ_NOTNULL(ctx->req->ws, WS_MAGIC);
 	
-	u = WS_Reserve(sp->ws,0);
-	p = sp->ws->f;
+	u = WS_Reserve(ctx->req->ws,0);
+	p = ctx->req->ws->f;
 	u = base64_encode(&alphabet[a],msg,strlen(msg),p,u);
 	if (u < 0) {
-		WS_Release(sp->ws,0);
+		WS_Release(ctx->req->ws,0);
 		return NULL;
 	}
-	WS_Release(sp->ws,u);
+	WS_Release(ctx->req->ws,u);
 	return p;
 }
 
 static const char *
-vmod_base64_decode_generic(struct sess *sp, enum alphabets a, const char *msg)
+vmod_base64_decode_generic(const struct vrt_ctx *ctx, enum alphabets a, const char *msg)
 {
 	char *p;
 	int u;
 	assert(msg);
 	assert(a<N_ALPHA);
 
-	CHECK_OBJ_NOTNULL(sp, SESS_MAGIC);
-	CHECK_OBJ_NOTNULL(sp->ws, WS_MAGIC);
-	u = WS_Reserve(sp->ws,0);
-	p = sp->ws->f;
+	CHECK_OBJ_NOTNULL(ctx->req, SESS_MAGIC);
+	CHECK_OBJ_NOTNULL(ctx->req->ws, WS_MAGIC);
+	u = WS_Reserve(ctx->req->ws,0);
+	p = ctx->req->ws->f;
 	u = base64_decode(&alphabet[a], p,u,msg);
 	if (u < 0) {
-		WS_Release(sp->ws,0);
+		WS_Release(ctx->req->ws,0);
 		return NULL;
 	}
-	WS_Release(sp->ws,u);
+	WS_Release(ctx->req->ws,u);
 	return p;
 }
 
 static const char *
-vmod_hash_generic(struct sess *sp, hashid hash, const char *msg)
+vmod_hash_generic(const struct vrt_ctx *ctx, hashid hash, const char *msg)
 {
 	MHASH td;
 	unsigned char h[mhash_get_block_size(hash)];
@@ -330,7 +330,7 @@ vmod_hash_generic(struct sess *sp, hashid hash, const char *msg)
 	td = mhash_init(hash);
 	mhash(td, msg, strlen(msg));
 	mhash_deinit(td, h);
-	p = WS_Alloc(sp->ws,mhash_get_block_size(hash)*2 + 1);
+	p = WS_Alloc(ctx->req->ws,mhash_get_block_size(hash)*2 + 1);
 	ptmp = p;
 	for (i = 0; i<mhash_get_block_size(hash);i++) {
 		sprintf(ptmp,"%.2x",h[i]);
@@ -341,11 +341,11 @@ vmod_hash_generic(struct sess *sp, hashid hash, const char *msg)
 
 #define VMOD_HASH_FOO(low, high) \
 const char * __match_proto__ () \
-vmod_hash_ ## low (struct sess *sp, const char *msg) \
+vmod_hash_ ## low (const struct vrt_ctx *ctx, const char *msg) \
 { \
 	if (msg == NULL) \
 		msg = ""; \
-	return vmod_hash_generic(sp, MHASH_ ## high, msg); \
+	return vmod_hash_generic(ctx, MHASH_ ## high, msg); \
 }
 
 VMOD_HASH_FOO(sha1,SHA1)
@@ -378,19 +378,19 @@ VMOD_HASH_FOO(whirlpool,WHIRLPOOL)
 
 #define VMOD_ENCODE_FOO(codec_low,codec_big) \
 const char * __match_proto__ () \
-vmod_ ## codec_low (struct sess *sp, const char *msg) \
+vmod_ ## codec_low (const struct vrt_ctx *ctx, const char *msg) \
 { \
 	if (msg == NULL) \
 		msg = ""; \
-	return vmod_base64_generic(sp,codec_big,msg); \
+	return vmod_base64_generic(ctx,codec_big,msg); \
 } \
 \
 const char * __match_proto__ () \
-vmod_ ## codec_low ## _decode (struct sess *sp, const char *msg) \
+vmod_ ## codec_low ## _decode (const struct vrt_ctx *ctx, const char *msg) \
 { \
 	if (msg == NULL) \
 		msg = ""; \
-	return vmod_base64_decode_generic(sp,codec_big,msg); \
+	return vmod_base64_decode_generic(ctx,codec_big,msg); \
 }
 
 VMOD_ENCODE_FOO(base64,BASE64)
@@ -404,13 +404,13 @@ VMOD_ENCODE_FOO(base64url_nopad,BASE64URLNOPAD)
  */
 #define VMOD_HMAC_FOO(hash,hashup) \
 const char * \
-vmod_hmac_ ## hash(struct sess *sp, const char *key, const char *msg) \
+vmod_hmac_ ## hash(const struct vrt_ctx *ctx, const char *key, const char *msg) \
 { \
 	if (msg == NULL) \
 		msg = ""; \
 	if (key == NULL) \
 		return NULL; \
-	return vmod_hmac_generic(sp, MHASH_ ## hashup, key, msg); \
+	return vmod_hmac_generic(ctx, MHASH_ ## hashup, key, msg); \
 }
 
 
@@ -420,7 +420,7 @@ VMOD_HMAC_FOO(md5,MD5)
 
 
 const char * __match_proto__()
-vmod_version(struct sess *sp __attribute__((unused)))
+vmod_version(const struct vrt_ctx *ctx __attribute__((unused)))
 {
 	return VERSION;
 }
