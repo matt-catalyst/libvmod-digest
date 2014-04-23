@@ -242,8 +242,7 @@ vmod_hmac_generic(const struct vrt_ctx *ctx, hashid hash, const char *key, const
 
 	assert(msg);
 	assert(key);
-	CHECK_OBJ_NOTNULL(ctx->req, SESS_MAGIC);
-	CHECK_OBJ_NOTNULL(ctx->req->ws, WS_MAGIC);
+	CHECK_OBJ_NOTNULL(ctx, VRT_CTX_MAGIC);
 
 	/*
 	 * XXX: From mhash(3):
@@ -258,7 +257,7 @@ vmod_hmac_generic(const struct vrt_ctx *ctx, hashid hash, const char *key, const
 		mhash_get_hash_pblock(hash));
 	mhash(td, msg, strlen(msg));
 	mhash_hmac_deinit(td,mac);
-	
+
 	/*
 	 * HEX-encode
 	 */
@@ -284,9 +283,8 @@ vmod_base64_generic(const struct vrt_ctx *ctx, enum alphabets a, const char *msg
 	int u;
 	assert(msg);
 	assert(a<N_ALPHA);
-	CHECK_OBJ_NOTNULL(ctx->req, SESS_MAGIC);
-	CHECK_OBJ_NOTNULL(ctx->req->ws, WS_MAGIC);
-	
+	CHECK_OBJ_NOTNULL(ctx, VRT_CTX_MAGIC);
+
 	u = WS_Reserve(ctx->req->ws,0);
 	p = ctx->req->ws->f;
 	u = base64_encode(&alphabet[a],msg,strlen(msg),p,u);
@@ -306,8 +304,7 @@ vmod_base64_decode_generic(const struct vrt_ctx *ctx, enum alphabets a, const ch
 	assert(msg);
 	assert(a<N_ALPHA);
 
-	CHECK_OBJ_NOTNULL(ctx->req, SESS_MAGIC);
-	CHECK_OBJ_NOTNULL(ctx->req->ws, WS_MAGIC);
+	CHECK_OBJ_NOTNULL(ctx, VRT_CTX_MAGIC);
 	u = WS_Reserve(ctx->req->ws,0);
 	p = ctx->req->ws->f;
 	u = base64_decode(&alphabet[a], p,u,msg);
